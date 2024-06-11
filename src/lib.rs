@@ -38,7 +38,6 @@ impl Logger {
 }
 
 pub fn add(left: usize, right: usize) -> usize {
-    println!("hi Rodrigo");
     left + right
 }
 
