@@ -2,6 +2,8 @@
 name = "logtail-rust"
 version = "0.1.0"
 edition = "2021"
+repository="https://github.com/LuisEvilCo/logtail-rust"
+license="Apache-2.0"
 
 [dependencies]
 strum = "0.26.2"
