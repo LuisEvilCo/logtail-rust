@@ -4,7 +4,6 @@ use serde::Serialize;
 use serde_json::Value;
 use std::io::ErrorKind;
 
-
 pub async fn post<T>(
     url: &str,
     _config: &EnvConfig,
