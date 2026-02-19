@@ -29,7 +29,7 @@ jobs:
         run: cargo install cargo-llvm-cov
 
       - name: Run tests with coverage
-        run: cargo llvm-cov test --verbose --html --output-dir coverage
+        run: cargo llvm-cov test --verbose --html --output-dir coverage && cargo llvm-cov report
 
       - name: Upload coverage report
         if: always()
