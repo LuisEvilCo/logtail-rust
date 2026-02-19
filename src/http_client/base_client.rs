@@ -1,4 +1,3 @@
-use crate::r#struct::env_config::EnvConfig;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Serialize;
 use serde_json::Value;
@@ -6,7 +5,6 @@ use std::io::ErrorKind;
 
 pub async fn post<T>(
     url: &str,
-    _config: &EnvConfig,
     data: &T,
     extra_headers: Option<HeaderMap>,
 ) -> Result<Option<Value>, std::io::Error>
@@ -75,4 +73,49 @@ fn build_headers(input_headers: Option<HeaderMap>) -> HeaderMap {
     headers.insert("Accept", HeaderValue::from_static("application/json"));
 
     headers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_headers_none_adds_accept() {
+        let headers = build_headers(None);
+        assert_eq!(
+            headers.get("Accept").unwrap(),
+            HeaderValue::from_static("application/json")
+        );
+        assert_eq!(headers.len(), 1);
+    }
+
+    #[test]
+    fn build_headers_merges_extra_headers() {
+        let mut extra = HeaderMap::new();
+        extra.insert("Authorization", HeaderValue::from_static("Bearer token123"));
+
+        let headers = build_headers(Some(extra));
+        assert_eq!(
+            headers.get("Authorization").unwrap(),
+            HeaderValue::from_static("Bearer token123")
+        );
+        assert_eq!(
+            headers.get("Accept").unwrap(),
+            HeaderValue::from_static("application/json")
+        );
+        assert_eq!(headers.len(), 2);
+    }
+
+    #[test]
+    fn build_headers_accept_overwrites_extra() {
+        let mut extra = HeaderMap::new();
+        extra.insert("Accept", HeaderValue::from_static("text/plain"));
+
+        let headers = build_headers(Some(extra));
+        // build_headers inserts after extras, so its value wins
+        assert_eq!(
+            headers.get("Accept").unwrap(),
+            HeaderValue::from_static("application/json")
+        );
+    }
 }

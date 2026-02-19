@@ -23,7 +23,6 @@ impl Logger {
         Self { env_config }
     }
 
-    #[allow(dead_code)]
     pub async fn info(&self, log: LogSchema) {
         let env_config = &self.env_config;
         let better_log = log.to_betterstack(env_config, LogLevel::Info);
@@ -35,7 +34,6 @@ impl Logger {
         }
     }
 
-    #[allow(dead_code)]
     pub async fn warn(&self, log: LogSchema) {
         let env_config = &self.env_config;
         let better_log = log.to_betterstack(&self.env_config, LogLevel::Warn);
@@ -47,7 +45,6 @@ impl Logger {
         }
     }
 
-    #[allow(dead_code)]
     pub async fn error(&self, log: LogSchema) {
         let env_config = &self.env_config;
         let better_log = log.to_betterstack(&self.env_config, LogLevel::Error);
@@ -59,7 +56,6 @@ impl Logger {
         }
     }
 
-    #[allow(dead_code)]
     pub async fn debug(&self, log: LogSchema) {
         let better_log = log.to_betterstack(&self.env_config, LogLevel::Debug);
         println!("{}", better_log);

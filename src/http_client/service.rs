@@ -19,7 +19,7 @@ pub async fn push_log(config: &EnvConfig, log: &BetterStackLogSchema) -> Option<
     let logs_url = "https://in.logs.betterstack.com";
     let bearer_header = bearer_headers(config);
 
-    let http_result = base_client::post(logs_url, config, log, Some(bearer_header)).await;
+    let http_result = base_client::post(logs_url, log, Some(bearer_header)).await;
 
     match http_result {
         Err(err) => {
