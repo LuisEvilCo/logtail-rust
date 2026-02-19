@@ -86,12 +86,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     fn qa_config() -> EnvConfig {
-        EnvConfig::from_values(
-            "1.0.0".to_string(),
-            EnvEnum::QA,
-            "token".to_string(),
-            false,
-        )
+        EnvConfig::from_values("1.0.0".to_string(), EnvEnum::QA, "token".to_string(), false)
     }
 
     fn local_config() -> EnvConfig {
