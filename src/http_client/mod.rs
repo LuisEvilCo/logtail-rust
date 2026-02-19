@@ -57,3 +57,64 @@ pub trait HttpClient: Send + Sync {
 
 #[cfg(test)]
 pub(crate) mod mock;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- is_retryable ---
+
+    #[test]
+    fn http_5xx_is_retryable() {
+        let err = LogtailError::Http {
+            status: 500,
+            message: "internal".to_string(),
+        };
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn http_502_is_retryable() {
+        let err = LogtailError::Http {
+            status: 502,
+            message: "bad gateway".to_string(),
+        };
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn http_4xx_is_not_retryable() {
+        let err = LogtailError::Http {
+            status: 400,
+            message: "bad request".to_string(),
+        };
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn http_404_is_not_retryable() {
+        let err = LogtailError::Http {
+            status: 404,
+            message: "not found".to_string(),
+        };
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn serialization_is_not_retryable() {
+        let serde_err = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err();
+        let err = LogtailError::Serialization(serde_err);
+        assert!(!err.is_retryable());
+    }
+
+    // --- RetryConfig::default ---
+
+    #[test]
+    fn retry_config_default_values() {
+        let config = RetryConfig::default();
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.base_delay, Duration::from_secs(1));
+        assert_eq!(config.max_delay, Duration::from_secs(5));
+        assert!(config.jitter);
+    }
+}

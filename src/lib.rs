@@ -54,6 +54,16 @@ impl Logger<ReqwestClient> {
 
 impl<C: HttpClient> Logger<C> {
     #[cfg(test)]
+    pub(crate) fn env_config(&self) -> &EnvConfig {
+        &self.env_config
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retry_config(&self) -> &RetryConfig {
+        &self.retry_config
+    }
+
+    #[cfg(test)]
     pub(crate) fn with_client(env_config: EnvConfig, client: C) -> Self {
         Self {
             env_config,
@@ -332,5 +342,76 @@ mod tests {
 
         let result = logger.info(test_log()).await;
         assert!(result.is_ok());
+    }
+
+    // --- LoggerBuilder tests ---
+
+    #[test]
+    fn builder_with_explicit_env_and_token() {
+        let logger = Logger::builder()
+            .app_version("2.0.0")
+            .verbose(false)
+            .environment(EnvEnum::Prod)
+            .logs_source_token("my-token")
+            .build();
+
+        assert_eq!(logger.env_config().app_version, "2.0.0");
+        assert!(!logger.env_config().verbose);
+        assert_eq!(logger.env_config().environment, EnvEnum::Prod);
+        assert_eq!(logger.env_config().logs_source_token, "my-token");
+    }
+
+    #[test]
+    fn builder_retry_options() {
+        let logger = Logger::builder()
+            .environment(EnvEnum::QA)
+            .logs_source_token("tok")
+            .max_retries(5)
+            .base_delay(Duration::from_millis(200))
+            .max_delay(Duration::from_millis(800))
+            .jitter(false)
+            .build();
+
+        assert_eq!(logger.retry_config().max_retries, 5);
+        assert_eq!(logger.retry_config().base_delay, Duration::from_millis(200));
+        assert_eq!(logger.retry_config().max_delay, Duration::from_millis(800));
+        assert!(!logger.retry_config().jitter);
+    }
+
+    #[test]
+    fn builder_defaults_without_overrides() {
+        let logger = Logger::builder()
+            .environment(EnvEnum::QA)
+            .logs_source_token("tok")
+            .build();
+
+        assert_eq!(logger.env_config().app_version, env!("CARGO_PKG_VERSION"));
+        assert!(logger.env_config().verbose);
+        assert_eq!(logger.retry_config().max_retries, 3);
+        assert_eq!(logger.retry_config().base_delay, Duration::from_secs(1));
+        assert_eq!(logger.retry_config().max_delay, Duration::from_secs(5));
+        assert!(logger.retry_config().jitter);
+    }
+
+    // --- Logger::with_retry tests ---
+
+    #[tokio::test]
+    async fn with_retry_uses_custom_retry_config() {
+        let custom = RetryConfig {
+            max_retries: 1,
+            base_delay: Duration::from_millis(1),
+            max_delay: Duration::from_millis(1),
+            jitter: false,
+        };
+        let mock = MockHttpClient::with_sequence(vec![
+            Err((500, "fail".to_string())),
+            Ok(Some(serde_json::json!({"ok": true}))),
+        ]);
+        let logger = Logger::with_client_and_retry(qa_config(), mock, custom);
+
+        let result = logger.info(test_log()).await;
+        assert!(result.is_ok());
+        // 1 initial + 1 retry = 2 calls
+        assert_eq!(logger.client.call_count.load(Ordering::SeqCst), 2);
     }
 }
