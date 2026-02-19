@@ -21,12 +21,6 @@ jobs:
       - name: Format check
         run: cargo fmt -- --check
 
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Run test
-        run: cargo test --verbose
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, llvm-tools-preview
@@ -34,8 +28,8 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
-      - name: Generate coverage report
-        run: cargo llvm-cov test --html --output-dir coverage
+      - name: Run tests with coverage
+        run: cargo llvm-cov test --verbose --html --output-dir coverage
 
       - name: Upload coverage report
         if: always()

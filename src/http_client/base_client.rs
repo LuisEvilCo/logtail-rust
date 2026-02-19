@@ -26,7 +26,7 @@ impl HttpClient for ReqwestClient {
             .json(body)
             .send()
             .await
-            .map_err(|e| std::io::Error::new(ErrorKind::Other, format!("{}", e)))?;
+            .map_err(|e| std::io::Error::other(format!("{}", e)))?;
 
         if response.status().is_success() {
             let body_bytes = response
