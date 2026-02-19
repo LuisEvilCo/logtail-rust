@@ -21,15 +21,23 @@ jobs:
       - name: Format check
         run: cargo fmt -- --check
 
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Run test
-        run: cargo test --verbose
-
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Run tests with coverage
+        run: cargo llvm-cov test --verbose --html --output-dir coverage && cargo llvm-cov report
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
 
       - uses: giraffate/clippy-action@v1
         with:
