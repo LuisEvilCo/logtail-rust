@@ -1,7 +1,6 @@
-use super::HttpClient;
+use super::{HttpClient, LogtailError};
 use reqwest::header::HeaderMap;
 use serde_json::Value;
-use std::io::ErrorKind;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -41,7 +40,7 @@ impl HttpClient for MockHttpClient {
         url: &str,
         body: &Value,
         extra_headers: Option<HeaderMap>,
-    ) -> Result<Option<Value>, std::io::Error> {
+    ) -> Result<Option<Value>, LogtailError> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         *self.captured_url.lock().unwrap() = Some(url.to_string());
         *self.captured_body.lock().unwrap() = Some(body.clone());
@@ -49,7 +48,10 @@ impl HttpClient for MockHttpClient {
 
         match &*self.result.lock().unwrap() {
             Ok(val) => Ok(val.clone()),
-            Err(msg) => Err(std::io::Error::new(ErrorKind::Other, msg.clone())),
+            Err(msg) => Err(LogtailError::Http {
+                status: 500,
+                message: msg.clone(),
+            }),
         }
     }
 }

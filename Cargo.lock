@@ -705,6 +705,7 @@ dependencies = [
  "serial_test",
  "strum",
  "strum_macros",
+ "thiserror 2.0.18",
  "tokio",
 ]
 

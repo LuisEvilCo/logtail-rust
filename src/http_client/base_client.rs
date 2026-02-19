@@ -1,7 +1,6 @@
-use super::HttpClient;
+use super::{HttpClient, LogtailError};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
-use std::io::ErrorKind;
 
 pub struct ReqwestClient;
 
@@ -11,7 +10,7 @@ impl HttpClient for ReqwestClient {
         url: &str,
         body: &Value,
         extra_headers: Option<HeaderMap>,
-    ) -> Result<Option<Value>, std::io::Error> {
+    ) -> Result<Option<Value>, LogtailError> {
         let mut header_map = HeaderMap::new();
 
         if let Some(value) = extra_headers {
@@ -25,38 +24,23 @@ impl HttpClient for ReqwestClient {
             .headers(build_headers(Some(header_map)))
             .json(body)
             .send()
-            .await
-            .map_err(|e| std::io::Error::other(format!("{}", e)))?;
+            .await?;
 
         if response.status().is_success() {
-            let body_bytes = response
-                .bytes()
-                .await
-                .map_err(|e| std::io::Error::new(ErrorKind::InvalidData, format!("{}", e)))?;
+            let body_bytes = response.bytes().await?;
 
             if !body_bytes.is_empty() {
-                let result_value: Value = serde_json::from_slice(&body_bytes)
-                    .map_err(|e| std::io::Error::new(ErrorKind::InvalidData, format!("{}", e)))?;
-
-                return Ok(Option::from(result_value));
+                let result_value: Value = serde_json::from_slice(&body_bytes)?;
+                return Ok(Some(result_value));
             }
 
             Ok(None)
         } else {
-            match response.status().as_u16() {
-                400 => Err(std::io::Error::new(
-                    ErrorKind::BrokenPipe,
-                    "Error getting http result : 400",
-                )),
-                404 => Err(std::io::Error::new(
-                    ErrorKind::NotFound,
-                    "Error getting http result : 404",
-                )),
-                code => Err(std::io::Error::new(
-                    ErrorKind::PermissionDenied,
-                    format!("Error getting http result : {:?}", code),
-                )),
-            }
+            let status = response.status().as_u16();
+            Err(LogtailError::Http {
+                status,
+                message: format!("HTTP request failed with status {}", status),
+            })
         }
     }
 }
