@@ -1,8 +1,9 @@
-use super::HttpClient;
+use super::{HttpClient, LogtailError, RetryConfig};
 use crate::r#struct::betterstack_log_schema::BetterStackLogSchema;
 use crate::r#struct::env_config::EnvConfig;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
+use std::time::Duration;
 
 /// Pushes a log to the BetterStack logs server asynchronously and returns a value.
 ///
@@ -14,38 +15,72 @@ use serde_json::Value;
 ///
 /// # Returns
 ///
-/// * If the log is sent successfully, returns `Some` containing the continuation value.
-/// * If there is an error sending the log, prints the error message and returns `None`.
+/// * `Ok(Some(value))` if the log is sent successfully and a response body is returned.
+/// * `Ok(None)` if the log is sent successfully but no response body is returned.
+/// * `Err(LogtailError)` if there is an error sending the log.
 pub async fn push_log(
     client: &impl HttpClient,
     config: &EnvConfig,
     log: &BetterStackLogSchema,
-) -> Option<Value> {
+) -> Result<Option<Value>, LogtailError> {
     let logs_url = "https://in.logs.betterstack.com";
     let bearer_header = bearer_headers(config);
-    let body = serde_json::to_value(log).expect("Failed to serialize log to JSON");
+    let body = serde_json::to_value(log)?;
 
-    let http_result = client.post_json(logs_url, &body, Some(bearer_header)).await;
+    client.post_json(logs_url, &body, Some(bearer_header)).await
+}
 
-    match http_result {
-        Err(err) => {
-            println!("!!! Error sending log : {}", err);
-            // Ignore the error sending logs, so we can continue
-            // logging errors must not crash the app
-            None
+/// Pushes a log with automatic retry on transient failures.
+///
+/// Uses exponential backoff with optional jitter. Only retries on errors
+/// where `is_retryable()` returns true (5xx HTTP errors and network errors).
+pub async fn push_log_with_retry(
+    client: &impl HttpClient,
+    config: &EnvConfig,
+    log: &BetterStackLogSchema,
+    retry_config: &RetryConfig,
+) -> Result<Option<Value>, LogtailError> {
+    let mut last_err = None;
+
+    for attempt in 0..=retry_config.max_retries {
+        match push_log(client, config, log).await {
+            Ok(val) => return Ok(val),
+            Err(err) => {
+                if !err.is_retryable() || attempt == retry_config.max_retries {
+                    return Err(err);
+                }
+                last_err = Some(err);
+
+                let base_ms = retry_config
+                    .base_delay
+                    .as_millis()
+                    .saturating_mul(2u128.saturating_pow(attempt))
+                    as u64;
+                let capped_ms = base_ms.min(retry_config.max_delay.as_millis() as u64);
+
+                let delay_ms = if retry_config.jitter && capped_ms > 0 {
+                    // Cheap jitter using timestamp nanos
+                    let nanos = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .subsec_nanos() as u64;
+                    nanos % capped_ms
+                } else {
+                    capped_ms
+                };
+
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
         }
-        Ok(continuation_value) => Some(continuation_value?),
     }
+
+    Err(last_err.unwrap_or_else(|| LogtailError::Http {
+        status: 500,
+        message: "retry exhausted".to_string(),
+    }))
 }
 
 /// Generate a bearer header for the given server configuration.
-///
-/// # Parameters
-/// - `server_config`: A reference to the server configuration.
-///
-/// # Returns
-/// The generated bearer header as a `HeaderMap`.
-///
 fn bearer_headers(config: &EnvConfig) -> HeaderMap {
     let logs_source_token = config.logs_source_token.as_str();
     let bearer_value_str = format!("Bearer {}", logs_source_token);
@@ -95,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn calls_correct_url() {
         let mock = MockHttpClient::with_success(None);
-        push_log(&mock, &test_config(), &test_log()).await;
+        let _ = push_log(&mock, &test_config(), &test_log()).await;
 
         let url = mock.captured_url.lock().unwrap().clone().unwrap();
         assert_eq!(url, "https://in.logs.betterstack.com");
@@ -104,7 +139,7 @@ mod tests {
     #[tokio::test]
     async fn sends_bearer_header() {
         let mock = MockHttpClient::with_success(None);
-        push_log(&mock, &test_config(), &test_log()).await;
+        let _ = push_log(&mock, &test_config(), &test_log()).await;
 
         let headers = mock.captured_headers.lock().unwrap().clone().unwrap();
         assert_eq!(
@@ -116,7 +151,7 @@ mod tests {
     #[tokio::test]
     async fn sends_content_type_json() {
         let mock = MockHttpClient::with_success(None);
-        push_log(&mock, &test_config(), &test_log()).await;
+        let _ = push_log(&mock, &test_config(), &test_log()).await;
 
         let headers = mock.captured_headers.lock().unwrap().clone().unwrap();
         assert_eq!(
@@ -128,7 +163,7 @@ mod tests {
     #[tokio::test]
     async fn sends_serialized_log_body() {
         let mock = MockHttpClient::with_success(None);
-        push_log(&mock, &test_config(), &test_log()).await;
+        let _ = push_log(&mock, &test_config(), &test_log()).await;
 
         let body = mock.captured_body.lock().unwrap().clone().unwrap();
         assert_eq!(body["message"], "test message");
@@ -144,15 +179,15 @@ mod tests {
         let mock = MockHttpClient::with_success(Some(response.clone()));
 
         let result = push_log(&mock, &test_config(), &test_log()).await;
-        assert_eq!(result.unwrap(), response);
+        assert_eq!(result.unwrap().unwrap(), response);
     }
 
     #[tokio::test]
-    async fn returns_none_on_error() {
+    async fn returns_error_on_failure() {
         let mock = MockHttpClient::with_error("connection refused");
 
         let result = push_log(&mock, &test_config(), &test_log()).await;
-        assert!(result.is_none());
+        assert!(result.is_err());
     }
 
     #[tokio::test]
@@ -160,7 +195,7 @@ mod tests {
         let mock = MockHttpClient::with_success(None);
 
         let result = push_log(&mock, &test_config(), &test_log()).await;
-        assert!(result.is_none());
+        assert!(result.unwrap().is_none());
         assert_eq!(mock.call_count.load(Ordering::SeqCst), 1);
     }
 }
